@@ -207,3 +207,111 @@ context.refresh();
 会使用到它们，进一步来讲，你的应用代码就不应该使用`getBean`方法，因为这完全不依赖于Spring API。举个例子，Spring集成
 的web framework提供了许多web组件的依赖注入例如 controllers 和 JSF-managed 的beans，允许你通过元数据来描述bean的依赖
 关系（eg:使用`autowiring`注解）
+
+## Bean概念
+一个Spring IoC容器管理着一个或者多个bean，这些bean是用你所提供的配置元数据来进行创建的，例如XML中`<beans/>`节点中的定义。
+
+在容器自身内部，`BeanDefinition`对象代表了这些bean的定义，包含了以下相关的元数据：
+* 一个包含包签名的类名：通常是被定义的bean的实现类。
+* Bean的行为配置元素，它声明了bean在容器中的行为（范围，生命周期回调等等）。
+* Bean工作时所需要的其它的bean的引用，这些引用也被称为*collaborators*或者*dependencies*.
+* 在创建新对象时生效的配置设置，例如：在管理连接池的bean中的连接数量或者池的大小限制。
+
+这些元数据会转换成用于构成每个bean的属性。
+
+*Table 1. The bean definition*
+
+属性|解析
+---|---
+class|[Instantiating beans](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-class)
+name|[Naming beans](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-beanname)
+scope|[Bean scopes](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-scopes)
+constructor arguments|[Dependency Injection](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-collaborators)
+properties|[Dependency Injection](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-collaborators)
+autowiring mode|[Autowiring collaborators](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-autowire)
+lazy-initialization mode|[Lazy-initialized beans](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-lazy-init)
+initialization method|[Initialization callbacks](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-lifecycle-initializingbean)
+destruction method|[Destruction callbacks](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-lifecycle-disposablebean)
+
+除了包含有关如何创建特定bean的信息的bean定义之外，ApplicationContext的实现还允许用户在容器外创建现有对象。
+这是通过访问ApplicationContext’s BeanFactory中的`getBeanFactory()`方法，用来获取BeanFactory的实现类
+`DefaultListableBeanFactory`。`DefaultListableBeanFactory`通过`registerSingleton(..)`
+和`registerBeanDefinition(..)`方法来支持这种注册。不过，一般应用都是通过元数据bean定义来定义bean。
+
+```
+Bean元数据和手动提供的单例实现需要尽早的去注册，以便容器在自省步骤和自动写入时能正确的获取它们。虽然在一定程度上可以支持
+覆盖已经存在的元数据和单例实例，但是在运行时（与当前访问工厂同时进行）创建新的bean是不支持的，这会导致bean容器并发访问异
+常或者使得状态不一致。
+```
+
+### beans命名
+每个bean都有一个或者多个身份标识，这些标识在托管bean的容器必须是唯一的。一个bean通常只一个身份标识，但如果它需要多个，
+多余的标识则会被认为是别名。
+
+在基于XML配置元数据中，你使用`id`或者`name`属性来指定bean的标识。`id`属性只允许你指定一个id。通常这些名称由字母组成
+如('myBean', 'fooService'等)，但也可以包含特殊字符。如果你想给bean声明其它别名，你可以使用`name`属性，通过`,`,`;`
+或者空格分隔的字符串来指定它们。历史版本中，在Spring 3.1之前，`id`属性被定义为`xsd:ID`类型，这限制了可选的字符。截
+至3.1版本，`id`属性被定义为`xsd:string`类型。请注意，bean的`id`属性的唯一性由容器来强制执行而不是由XML解析器来控制。
+
+你不需要为bean提供一个name或者id。如果没有明确的id或者name，容器会为这个bean生成一个唯一的name。不过，如果你想通过
+name来引用这个bean，你必须提供一个name，通过使用`ref`元素或者[Service Locator](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-servicelocator)来引用。
+如果没有提供name，可以使用[inner beans](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-inner-beans)和[autowiring collaborators](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-factory-autowire)。
+
+#### beans命名约定
+简单来说就是请使用java字段的命名标准-驼峰命名法。
+
+```
+在classpath上扫描组件时，spring会给没有命名的组件按规范生成一个名字，本质上，会以简单类名的小写来作为名字。
+```
+
+##### 在bean定义外给bean起别名
+在bean的定义中，通过组合使用定义单个名字的特定属性`id`和定义多个名字的属性`name`，你可以给bean提供一个或者多个名字。
+这些名字可以等同于bean的别名，而且在一些场景下很有用，例如在一个应用中允许每个组件使用特定于该组件的bean name来引用
+公共依赖项。
+
+在bean定义的时候指定所有的别名是不够的，有时候也需要在别的地方定义bean的别名。通常，在一个大型系统中，每个子系统的配置
+都是分隔开的，每个子系统都有属于自己的配置。在基于XML的配置元数据中，你可以使用`<alias/>`元素来完成这个操作。
+
+```xml
+<alias name="fromName" alias="toName"/>
+```
+
+在这个例子中，在同个容器中这个bean命名为`fromName`，然后通过使用alias定义添加别名`toName`。
+
+举个例子，子系统A的配置元数据也许会通过名称`subsystemA-dataSource`来引用DataSource。子系统B
+也许会通过名称`subsystemB-dataSource`来引用DataSource。当构成这两个子系统的主应用时，主应用
+通过名称`myApp-dataSource`来引用DataSource。你可以给你的应用添加以下配置元数据来引用这3个名称。
+
+```xml
+<alias name="subsystemA-dataSource" alias="subsystemB-dataSource"/>
+<alias name="subsystemA-dataSource" alias="myApp-dataSource" />
+```
+
+这样每个组件和主应用都可以通过一个唯一而且不跟别的定义冲突的名称来引用一个相同的bean。
+
+如果你在使用`Java-configuration`，`@Bean`注解提供别名的方式请参考[这里](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#beans-java-bean-annotation)。
+
+### 实例化Bean
+如果把创建对象比喻为做菜的话，一个bean的定义实质上是创建一个或者多个对象的菜谱。当一个bean被
+引用时容器就会去菜谱找这个bean的定义，然后再使用定义中封装的配置元数据去创建或者获取一个实际
+的对象。
+
+如果你使用基于xml的配置元数据，你需要在`<bean/>`元素内的`class`定义你想初始化的对象的类型（或者class）
+这个`class`属性，是`BeanDefinition`实例内部的一个`class` 属性，而且通常是强制的。你可以通过以下两种
+之一的方法来使用`class`属性：
+
+* 通常，要定义一个被构造的bean class时容器本身会直接的通过反射来调用它的构造函数来创建bean，相当于java
+里的`new`操作。
+* 定义一个实际的类，其包含用于调用创建对象的`static`工厂方法。这种容器通过类的静态工厂方法来创建bean不是很常见。
+通过调用静态工厂方法返回的类可以是同一个class或者不同的class。
+
+```
+内部类名称
+如果你配置一个静态的内部类的bean定义，你要使用这个内部类的二进制名称。
+举个例子，有一个Foo类在com.example这个包中，Foo类有一个静态内部类叫Bar，那么定义bean时class属性会是这样的
+com.example.Foo$Bar
+注意使用$符号来分隔外部类和内部类
+```
+
+#### 通过构造函数初始化
+
